@@ -1,0 +1,5 @@
+node_modules/
+dist/
+
+# Local TLS material — regenerate with `npm run certs`.
+certs/

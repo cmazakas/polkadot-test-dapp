@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+  <title>brave-wallet test dapp</title>
+  <style>
+    body { font: 14px/1.5 system-ui, sans-serif; margin: 2rem; max-width: 60rem; }
+    label { display: block; margin-top: 1rem; font-weight: 600; }
+    textarea { width: 100%; font-family: ui-monospace, monospace; font-size: 12px; min-height: 18rem; }
+    button { font: inherit; padding: 0.3rem 0.8rem; margin-right: 0.4rem; }
+    pre { background: #f4f4f5; padding: 1rem; overflow: auto; white-space: pre-wrap; }
+    #status { margin-top: 1rem; color: #666; }
+    .err { color: #b91c1c; }
+  </style>
+</head>
+<body>
+  <h1>brave-wallet test dapp</h1>
+
+  <button id="connect">Connect</button>
+  <button id="accounts">Show accounts</button>
+
+  <label for="payload">SignerPayloadJSON</label>
+  <textarea id="payload" spellcheck="false"></textarea>
+  <button id="sign">Request signature</button>
+
+  <div id="status"></div>
+  <pre id="out"></pre>
+
+  <script src="dist/bundle.js"></script>
+</body>
+</html>
