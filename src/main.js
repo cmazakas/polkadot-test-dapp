@@ -1,10 +1,12 @@
-import { web3Accounts, web3Enable, web3FromSource } from '@polkadot/extension-dapp'
+import { decodeAddress, encodeAddress } from '@polkadot/util-crypto'
 
-const WALLET = 'brave-wallet'
-const DAPP_NAME = 'brave-wallet test dapp'
+const WALLETS = ['brave-wallet', 'talisman']
+const DAPP_NAME = 'polkadot wallet test dapp'
 
-// web3Accounts re-encodes every address and falls back to prefix 42 when this is
-// unset, which would not match the prefix-0 address in the sample payload below.
+let wallet = null
+
+// Addresses are re-encoded so they match the prefix-0 address in the sample
+// payload below, rather than whatever prefix the extension happens to hand back.
 const SS58_FORMAT = 0
 
 const $ = (id) => document.getElementById(id)
@@ -12,29 +14,41 @@ const status = $('status')
 const out = $('out')
 
 const SAMPLE_PAYLOAD = {
-  specVersion: '0x001e9808',
-  transactionVersion: '0x0000000f',
-  address: '16cM3vo8Ay8g9PxEaHFG2HZmZ8TYHf4gYAjBm3zAjezTCUMt',
+  specVersion: "0x001e9808",
+  transactionVersion: "0x0000000f",
+  address: "16cM3vo8Ay8g9PxEaHFG2HZmZ8TYHf4gYAjBm3zAjezTCUMt",
   assetId: null,
-  blockHash: '0x5cc4fd7a625a879bfa71e9a75df3a0dc9b359bab022b97f75e0edd2a97ea2abe',
-  blockNumber: '0x0144bba3',
-  era: '0x3400',
-  genesisHash: '0x68d56f15f85d3136970ec16946040bc1752654e906147f7e43e9d539d7c3de2f',
+  blockHash: "0xa4d849853e6d5f0df4e03b3fbc104d7937d8e85585fcbafa06290bfb4de081a9",
+  blockNumber: "0x0148d3ac",
+  era: "0xc400",
+  genesisHash: "0x68d56f15f85d3136970ec16946040bc1752654e906147f7e43e9d539d7c3de2f",
   metadataHash: null,
-  method:
-    '0x1f03051800040100000778f43aa9013001000003ac9fc66f1608140d01020800010100f8224098b97b27e917689228c41f23e2b06cc48666bc6eaec030169b441578400f0101010000040201090704000b00a84e4563b000310201090704010200040201090704000b00a84e4563b0010401000401000002093d00080d01020c0001030083cf32ace9e4c47165934f9a695fc23f96dee73d2ce2eb75ae63c3408d4ac42de834f1f0f9f93cd2d6de2bc53355549c006002c5852ce2eb75ae63c3408d4ac42de834f1f0f9f93cd2d6de2bc53355549c006002c58503aedf2e980ebf0200',
+  method: "0x1f03051c000401000007093581e70e3001000003890dff6f1608140d01020800010100f8224098b97b27e917689228c41f23e2b06cc48666bc6eaec030169b441578400f0101010000040201090704000f00163982d4df06000d00040201090704000b00f0ab75a40d000101002a975dad1c0fb19221a9288a0ae4b63ed29f3c625a73578117dde65482b8fc23310201090704010200040201090704000f00268d0c30d20601040100040100000700e40b5402080d01020c0001030083cf32ace9e4c47165934f9a695fc23f96dee73d2ccb4f8d0d25b94af68380348f8eea289c3183f0f0bcb2a1fa2ee9ee89434eba012ccb4f8d0d25b94af68380348f8eea289c3183f0f0bcb2a1fa2ee9ee89434eba0103c83d82a9d2060300",
   mode: 0,
-  nonce: '0x00000000',
+  nonce: "0x00000001",
   signedExtensions: [
-    'AuthorizeCall', 'CheckNonZeroSender', 'CheckSpecVersion', 'CheckTxVersion',
-    'CheckGenesis', 'CheckMortality', 'CheckNonce', 'CheckWeight',
-    'ChargeAssetTxPayment', 'PrevalidateAttests', 'CheckMetadataHash',
-    'EthSetOrigin', 'StorageWeightReclaim', 'UnitTransactionExtension',
-    'VerifyMultiSignature', 'AsPgas', 'AsDotnsGateway', 'RestrictOrigins',
+    "AuthorizeCall",
+    "CheckNonZeroSender",
+    "CheckSpecVersion",
+    "CheckTxVersion",
+    "CheckGenesis",
+    "CheckMortality",
+    "CheckNonce",
+    "CheckWeight",
+    "ChargeAssetTxPayment",
+    "PrevalidateAttests",
+    "CheckMetadataHash",
+    "EthSetOrigin",
+    "StorageWeightReclaim",
+    "UnitTransactionExtension",
+    "VerifyMultiSignature",
+    "AsPgas",
+    "AsDotnsGateway",
+    "RestrictOrigins"
   ],
-  tip: '0x00000000000000000000000000000000',
+  tip: "0x00000000000000000000000000000000",
   version: 4,
-  withSignedTransaction: true,
+  withSignedTransaction: false
 }
 
 function show(value, isError = false) {
@@ -55,45 +69,75 @@ function injectedKeys() {
   return Object.keys(globalThis.injectedWeb3 ?? {})
 }
 
-$('connect').addEventListener('click', async () => {
-  status.textContent = 'Enabling…'
-
-  try {
-    const extensions = await web3Enable(DAPP_NAME)
-    console.log(extensions)
-    const found = extensions.find((e) => e.name === WALLET)
-    show({
-      'window.injectedWeb3': injectedKeys(),
-      enabled: extensions.map(({ name, version }) => ({ name, version })),
-      [WALLET]: found
-        ? { version: found.version, signer: Object.keys(found.signer) }
-        : 'not enabled',
-    })
-
-    status.textContent = found
-      ? `${WALLET} v${found.version} connected.`
-      : `${WALLET} did not enable.`
-  } catch (e) {
-    status.textContent = 'Enable failed.'
-    show(describeError(e), true)
+function requireWallet() {
+  if (!wallet) {
+    throw new Error('No wallet selected — connect one first.')
   }
-})
+  return wallet
+}
+
+// Enable a single provider by name. web3Enable() cannot be used here: it fans out
+// to every key in window.injectedWeb3 at once, so two extensions race to open an
+// authorization popup and the loser is silently dropped from its result.
+async function enableWallet(name) {
+  const entry = globalThis.injectedWeb3?.[name]
+
+  if (!entry) {
+    throw new Error(`${name} is not in window.injectedWeb3`)
+  }
+
+  if (entry.connect) {
+    return await entry.connect(DAPP_NAME)
+  }
+
+  if (!entry.enable) {
+    throw new Error(`${name} exposes neither connect() nor enable()`)
+  }
+
+  const injected = await entry.enable(DAPP_NAME)
+  return { name, version: entry.version ?? 'unknown', ...injected }
+}
+
+for (const name of WALLETS) {
+  $(`connect-${name}`).addEventListener('click', async () => {
+    status.textContent = `Enabling ${name}…`
+
+    try {
+      const extension = await enableWallet(name)
+      wallet = extension
+      show({
+        'window.injectedWeb3': injectedKeys(),
+        connected: {
+          name: extension.name,
+          version: extension.version,
+          signer: Object.keys(extension.signer ?? {}),
+        },
+      })
+
+      status.textContent = `${name} v${extension.version} connected.`
+    } catch (e) {
+      wallet = null
+      status.textContent = `${name} did not enable.`
+      show(describeError(e), true)
+    }
+  })
+}
+
+// A 42-character address is 0x-prefixed Ethereum-style and has no ss58 form.
+function reencode(address) {
+  return address.length === 42 ? address : encodeAddress(decodeAddress(address), SS58_FORMAT)
+}
 
 $('accounts').addEventListener('click', async () => {
   status.textContent = 'Listing accounts…'
 
   try {
-    const accounts = await web3Accounts({ extensions: [WALLET], ss58Format: SS58_FORMAT })
+    const { name, accounts } = requireWallet()
+    const list = await accounts.get()
+    const mapped = list.map((a) => ({ ...a, address: reencode(a.address) }))
 
-    if (!accounts.length) {
-      // web3Accounts swallows a throwing accounts.get() and reports an empty list,
-      // so ask the extension directly to find out whether it failed or is just empty.
-      const { accounts: raw } = await web3FromSource(WALLET)
-      await raw.get()
-    }
-
-    show(accounts.length ? accounts : `No accounts returned by ${WALLET}.`)
-    status.textContent = `${accounts.length} account(s).`
+    show(mapped.length ? mapped : `No accounts returned by ${name}.`)
+    status.textContent = `${mapped.length} account(s).`
   } catch (e) {
     status.textContent = 'Account listing failed.'
     show(describeError(e), true)
@@ -114,10 +158,10 @@ $('sign').addEventListener('click', async () => {
   status.textContent = 'Awaiting signature…'
 
   try {
-    const { signer } = await web3FromSource(WALLET)
+    const { name, signer } = requireWallet()
 
-    if (!signer.signPayload) {
-      throw new Error(`${WALLET} exposes no signPayload`)
+    if (!signer?.signPayload) {
+      throw new Error(`${name} exposes no signPayload`)
     }
 
     const result = await signer.signPayload(payload)

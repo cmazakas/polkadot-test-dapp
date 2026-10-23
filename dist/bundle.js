@@ -190,32 +190,6 @@
     return value ? decoder.decode(value) : "";
   }
 
-  // node_modules/@polkadot/util/object/spread.js
-  function objectSpread(dest, ...sources) {
-    const filterProps = /* @__PURE__ */ new Set(["__proto__", "constructor", "prototype"]);
-    for (let i = 0, count = sources.length; i < count; i++) {
-      const src = sources[i];
-      if (src) {
-        if (typeof src.entries === "function") {
-          for (const [key, value] of src.entries()) {
-            if (!filterProps.has(key)) {
-              dest[key] = value;
-            }
-          }
-        } else {
-          const sanitizedSrc = /* @__PURE__ */ Object.create(null);
-          for (const [key, value] of Object.entries(src)) {
-            if (!filterProps.has(key)) {
-              sanitizedSrc[key] = value;
-            }
-          }
-          Object.assign(dest, sanitizedSrc);
-        }
-      }
-    }
-    return dest;
-  }
-
   // node_modules/@polkadot/x-randomvalues/browser.js
   var crypto = xglobal.crypto;
   function getRandomValues(arr) {
@@ -3962,104 +3936,10 @@
   }
   var ss58Exceptions = [29972];
 
-  // node_modules/@polkadot/extension-dapp/util.js
-  function documentReadyPromise(creator) {
-    return new Promise((resolve) => {
-      if (document.readyState === "complete") {
-        resolve(creator());
-      } else {
-        window.addEventListener("load", () => resolve(creator()));
-      }
-    });
-  }
-
-  // node_modules/@polkadot/extension-dapp/bundle.js
-  var win = window;
-  win.injectedWeb3 = win.injectedWeb3 || {};
-  var isWeb3Injected = web3IsInjected();
-  var web3EnablePromise = null;
-  function web3IsInjected() {
-    return Object.values(win.injectedWeb3).filter(({ connect, enable }) => !!(connect || enable)).length !== 0;
-  }
-  function throwError(method) {
-    throw new Error(`${method}: web3Enable(originName) needs to be called before ${method}`);
-  }
-  function mapAccounts(source, list, ss58Format) {
-    return list.map(({ address, genesisHash, name, type }) => ({
-      address: address.length === 42 ? address : encodeAddress(decodeAddress(address), ss58Format),
-      meta: { genesisHash, name, source },
-      type
-    }));
-  }
-  function filterAccounts(list, genesisHash, type) {
-    return list.filter((a) => (!a.type || !type || type.includes(a.type)) && (!a.genesisHash || !genesisHash || a.genesisHash === genesisHash));
-  }
-  function getWindowExtensions(originName) {
-    return Promise.all(Object.entries(win.injectedWeb3).map(([nameOrHash, { connect, enable, version }]) => Promise.resolve().then(() => connect ? connect(originName) : enable ? enable(originName).then((e) => objectSpread({ name: nameOrHash, version: version || "unknown" }, e)) : Promise.reject(new Error("No connect(..) or enable(...) hook found"))).catch(({ message }) => {
-      console.error(`Error initializing ${nameOrHash}: ${message}`);
-    }))).then((exts) => exts.filter((e) => !!e));
-  }
-  async function filterEnable(caller, extensions) {
-    if (!web3EnablePromise) {
-      return throwError(caller);
-    }
-    const sources = await web3EnablePromise;
-    return sources.filter(({ name }) => !extensions || extensions.includes(name));
-  }
-  function web3Enable(originName, compatInits = []) {
-    if (!originName) {
-      throw new Error("You must pass a name for your app to the web3Enable function");
-    }
-    const initCompat = compatInits.length ? Promise.all(compatInits.map((c) => c().catch(() => false))) : Promise.resolve([true]);
-    web3EnablePromise = documentReadyPromise(() => initCompat.then(() => getWindowExtensions(originName).then((values) => values.map((e) => {
-      if (!e.accounts.subscribe) {
-        e.accounts.subscribe = (cb) => {
-          e.accounts.get().then(cb).catch(console.error);
-          return () => {
-          };
-        };
-      }
-      return e;
-    })).catch(() => []).then((values) => {
-      const names = values.map(({ name, version }) => `${name}/${version}`);
-      isWeb3Injected = web3IsInjected();
-      console.info(`web3Enable: Enabled ${values.length} extension${values.length !== 1 ? "s" : ""}: ${names.join(", ")}`);
-      return values;
-    })));
-    return web3EnablePromise;
-  }
-  async function web3Accounts({ accountType, extensions, genesisHash, ss58Format } = {}) {
-    const accounts = [];
-    const sources = await filterEnable("web3Accounts", extensions);
-    const retrieved = await Promise.all(sources.map(async ({ accounts: accounts2, name: source }) => {
-      try {
-        const list = await accounts2.get();
-        return mapAccounts(source, filterAccounts(list, genesisHash, accountType), ss58Format);
-      } catch {
-        return [];
-      }
-    }));
-    retrieved.forEach((result) => {
-      accounts.push(...result);
-    });
-    console.info(`web3Accounts: Found ${accounts.length} address${accounts.length !== 1 ? "es" : ""}`);
-    return accounts;
-  }
-  async function web3FromSource(source) {
-    if (!web3EnablePromise) {
-      return throwError("web3FromSource");
-    }
-    const sources = await web3EnablePromise;
-    const found = source && sources.find(({ name }) => name === source);
-    if (!found) {
-      throw new Error(`web3FromSource: Unable to find an injected ${source}`);
-    }
-    return found;
-  }
-
   // src/main.js
-  var WALLET = "brave-wallet";
-  var DAPP_NAME = "brave-wallet test dapp";
+  var WALLETS = ["brave-wallet", "talisman"];
+  var DAPP_NAME = "polkadot wallet test dapp";
+  var wallet = null;
   var SS58_FORMAT = 0;
   var $ = (id) => document.getElementById(id);
   var status = $("status");
@@ -4069,14 +3949,14 @@
     transactionVersion: "0x0000000f",
     address: "16cM3vo8Ay8g9PxEaHFG2HZmZ8TYHf4gYAjBm3zAjezTCUMt",
     assetId: null,
-    blockHash: "0x5cc4fd7a625a879bfa71e9a75df3a0dc9b359bab022b97f75e0edd2a97ea2abe",
-    blockNumber: "0x0144bba3",
-    era: "0x3400",
+    blockHash: "0xa4d849853e6d5f0df4e03b3fbc104d7937d8e85585fcbafa06290bfb4de081a9",
+    blockNumber: "0x0148d3ac",
+    era: "0xc400",
     genesisHash: "0x68d56f15f85d3136970ec16946040bc1752654e906147f7e43e9d539d7c3de2f",
     metadataHash: null,
-    method: "0x1f03051800040100000778f43aa9013001000003ac9fc66f1608140d01020800010100f8224098b97b27e917689228c41f23e2b06cc48666bc6eaec030169b441578400f0101010000040201090704000b00a84e4563b000310201090704010200040201090704000b00a84e4563b0010401000401000002093d00080d01020c0001030083cf32ace9e4c47165934f9a695fc23f96dee73d2ce2eb75ae63c3408d4ac42de834f1f0f9f93cd2d6de2bc53355549c006002c5852ce2eb75ae63c3408d4ac42de834f1f0f9f93cd2d6de2bc53355549c006002c58503aedf2e980ebf0200",
+    method: "0x1f03051c000401000007093581e70e3001000003890dff6f1608140d01020800010100f8224098b97b27e917689228c41f23e2b06cc48666bc6eaec030169b441578400f0101010000040201090704000f00163982d4df06000d00040201090704000b00f0ab75a40d000101002a975dad1c0fb19221a9288a0ae4b63ed29f3c625a73578117dde65482b8fc23310201090704010200040201090704000f00268d0c30d20601040100040100000700e40b5402080d01020c0001030083cf32ace9e4c47165934f9a695fc23f96dee73d2ccb4f8d0d25b94af68380348f8eea289c3183f0f0bcb2a1fa2ee9ee89434eba012ccb4f8d0d25b94af68380348f8eea289c3183f0f0bcb2a1fa2ee9ee89434eba0103c83d82a9d2060300",
     mode: 0,
-    nonce: "0x00000000",
+    nonce: "0x00000001",
     signedExtensions: [
       "AuthorizeCall",
       "CheckNonZeroSender",
@@ -4099,7 +3979,7 @@
     ],
     tip: "0x00000000000000000000000000000000",
     version: 4,
-    withSignedTransaction: true
+    withSignedTransaction: false
   };
   function show(value, isError = false) {
     out.textContent = typeof value === "string" ? value : JSON.stringify(value, null, 2);
@@ -4114,33 +3994,59 @@
   function injectedKeys() {
     return Object.keys(globalThis.injectedWeb3 ?? {});
   }
-  $("connect").addEventListener("click", async () => {
-    status.textContent = "Enabling\u2026";
-    try {
-      const extensions = await web3Enable(DAPP_NAME);
-      console.log(extensions);
-      const found = extensions.find((e) => e.name === WALLET);
-      show({
-        "window.injectedWeb3": injectedKeys(),
-        enabled: extensions.map(({ name, version }) => ({ name, version })),
-        [WALLET]: found ? { version: found.version, signer: Object.keys(found.signer) } : "not enabled"
-      });
-      status.textContent = found ? `${WALLET} v${found.version} connected.` : `${WALLET} did not enable.`;
-    } catch (e) {
-      status.textContent = "Enable failed.";
-      show(describeError(e), true);
+  function requireWallet() {
+    if (!wallet) {
+      throw new Error("No wallet selected \u2014 connect one first.");
     }
-  });
+    return wallet;
+  }
+  async function enableWallet(name) {
+    const entry = globalThis.injectedWeb3?.[name];
+    if (!entry) {
+      throw new Error(`${name} is not in window.injectedWeb3`);
+    }
+    if (entry.connect) {
+      return await entry.connect(DAPP_NAME);
+    }
+    if (!entry.enable) {
+      throw new Error(`${name} exposes neither connect() nor enable()`);
+    }
+    const injected = await entry.enable(DAPP_NAME);
+    return { name, version: entry.version ?? "unknown", ...injected };
+  }
+  for (const name of WALLETS) {
+    $(`connect-${name}`).addEventListener("click", async () => {
+      status.textContent = `Enabling ${name}\u2026`;
+      try {
+        const extension = await enableWallet(name);
+        wallet = extension;
+        show({
+          "window.injectedWeb3": injectedKeys(),
+          connected: {
+            name: extension.name,
+            version: extension.version,
+            signer: Object.keys(extension.signer ?? {})
+          }
+        });
+        status.textContent = `${name} v${extension.version} connected.`;
+      } catch (e) {
+        wallet = null;
+        status.textContent = `${name} did not enable.`;
+        show(describeError(e), true);
+      }
+    });
+  }
+  function reencode(address) {
+    return address.length === 42 ? address : encodeAddress(decodeAddress(address), SS58_FORMAT);
+  }
   $("accounts").addEventListener("click", async () => {
     status.textContent = "Listing accounts\u2026";
     try {
-      const accounts = await web3Accounts({ extensions: [WALLET], ss58Format: SS58_FORMAT });
-      if (!accounts.length) {
-        const { accounts: raw } = await web3FromSource(WALLET);
-        await raw.get();
-      }
-      show(accounts.length ? accounts : `No accounts returned by ${WALLET}.`);
-      status.textContent = `${accounts.length} account(s).`;
+      const { name, accounts } = requireWallet();
+      const list = await accounts.get();
+      const mapped = list.map((a) => ({ ...a, address: reencode(a.address) }));
+      show(mapped.length ? mapped : `No accounts returned by ${name}.`);
+      status.textContent = `${mapped.length} account(s).`;
     } catch (e) {
       status.textContent = "Account listing failed.";
       show(describeError(e), true);
@@ -4157,9 +4063,9 @@
     }
     status.textContent = "Awaiting signature\u2026";
     try {
-      const { signer } = await web3FromSource(WALLET);
-      if (!signer.signPayload) {
-        throw new Error(`${WALLET} exposes no signPayload`);
+      const { name, signer } = requireWallet();
+      if (!signer?.signPayload) {
+        throw new Error(`${name} exposes no signPayload`);
       }
       const result = await signer.signPayload(payload);
       show(result);
